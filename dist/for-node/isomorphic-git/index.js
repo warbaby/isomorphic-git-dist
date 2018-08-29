@@ -3099,14 +3099,17 @@ async function checkout ({
         // Instead of deleting and rewriting everything, only delete files
         // that are not present in the new branch, and only write files that
         // are not in the index or are in the index but have the wrong SHA.
+        let oldIndex = {};
+
         for (let entry of index) {
           try {
-            await fs.rm(path.join(dir, entry.path));
+            oldIndex[entry.path] = entry;
+            //await fs.rm(path.join(dir, entry.path));
           } catch (err) {}
         }
         index.clear();
         // Write files. TODO: Write them atomically
-        await writeTreeToDisk({ fs, gitdir, dir, index, prefix: '', tree });
+        await writeTreeToDisk({ fs, gitdir, dir, index, prefix: '', tree, oldIndex });
         // Update HEAD TODO: Handle non-branch cases
         await fs.write(`${gitdir}/HEAD`, `ref: refs/heads/${ref}`);
       }
@@ -3117,7 +3120,7 @@ async function checkout ({
   }
 }
 
-async function writeTreeToDisk ({ fs: _fs, dir, gitdir, index, prefix, tree }) {
+async function writeTreeToDisk ({ fs: _fs, dir, gitdir, index, prefix, tree, oldIndex }) {
   const fs = new FileSystem(_fs);
   for (let entry of tree) {
     if (entry.mode === '160000') {
@@ -3134,7 +3137,12 @@ async function writeTreeToDisk ({ fs: _fs, dir, gitdir, index, prefix, tree }) {
     let filepath = path.join(dir, prefix, entry.path);
     switch (type) {
       case 'blob':
-        if (entry.mode === '100644') {
+        if(oldIndex && oldIndex[entrypath] && oldIndex[entrypath].oid === entry.oid) {
+            index._entries.set(entrypath, oldIndex[entrypath]);
+            index._dirty = true;
+            continue;
+        }
+        if (entry.mode === '100644' || entry.mode === '100666') {
           // regular file
           await fs.write(filepath, object);
         } else if (entry.mode === '100755') {
@@ -3163,7 +3171,8 @@ async function writeTreeToDisk ({ fs: _fs, dir, gitdir, index, prefix, tree }) {
           gitdir,
           index,
           prefix: entrypath,
-          tree
+          tree,
+          oldIndex
         });
         break
       default:
@@ -3516,7 +3525,7 @@ function calculateBasicAuthUsernamePasswordPair ({
 const pkg = {
   name: 'isomorphic-git',
   version: '0.34.3',
-  agent: 'git/isomorphic-git@0.34.3'
+  agent: 'git/2.18.0'
 };
 
 class GitRemoteHTTP {
@@ -3987,7 +3996,7 @@ async function fetchPackfile ({
       'multi_ack_detailed',
       'no-done',
       'side-band-64k',
-      'thin-pack',
+      //'thin-pack',
       'ofs-delta',
       `agent=${pkg.agent}`
     ]
